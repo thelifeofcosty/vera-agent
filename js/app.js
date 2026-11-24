@@ -13,12 +13,20 @@
   };
 
   const EXAMPLES = [
-    "I'm looking for a guided tour for 4 people around 12 PM, budget under £40 per person",
+    'Guided tour for 4 around 12 PM, under £40 per person',
     'Vegan lunch for two',
     'Sushi-making class in Shibuya tomorrow afternoon',
     'Dinner for 2 under £100 in total, just book it',
     'Step-free walk in Shinjuku this morning',
   ];
+
+  // Picture for each merchant card (falls back to the category).
+  const ICONS = {
+    m01: '🍣', m02: '🏯', m03: '🐟', m04: '🍤', m05: '🎭', m06: '🍵', m07: '🥗', m08: '🍜',
+    m09: '🛺', m10: '👘', m11: '🍢', m12: '🌃', m13: '🍜', m14: '🍱', m15: '🏮', m16: '🌿',
+  };
+  const CATEGORY_ICON = { tour: '🗺️', restaurant: '🍽️', class: '🎨', culture: '🎭' };
+  const iconFor = (id, category) => ICONS[id] || CATEGORY_ICON[category] || '✨';
 
   // ---------------------------------------------------------------- state
 
@@ -48,7 +56,11 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   };
 
-  const merchantById = (id) => MERCHANTS.find((m) => m.id === id);
+  function friendlyDate(iso) {
+    if (iso === todayISO()) return 'Today';
+    if (iso === V.addDays(todayISO(), 1)) return 'Tomorrow';
+    return new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
 
   // ------------------------------------------------------------- DOM utils
 
@@ -69,9 +81,36 @@
 
   const $ = (sel) => document.querySelector(sel);
   const messages = $('#messages');
+  const scroller = $('#scroller');
 
   function scrollDown() {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
+  }
+
+  let toastTimer = null;
+  function toast(text) {
+    const t = $('#toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+  }
+
+  /** A button that needs a second tap to confirm (instead of a browser confirm dialog). */
+  function confirmButton(label, armedLabel, className, onConfirm) {
+    let timer = null;
+    const btn = el('button', { type: 'button', class: className }, label);
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('armed')) {
+        clearTimeout(timer);
+        onConfirm();
+        return;
+      }
+      btn.classList.add('armed');
+      btn.textContent = armedLabel;
+      timer = setTimeout(() => { btn.classList.remove('armed'); btn.textContent = label; }, 3000);
+    });
+    return btn;
   }
 
   function say(text) {
@@ -88,7 +127,17 @@
   }
 
   function addAgent(...children) {
-    const node = el('div', { class: 'msg agent' }, ...children);
+    const body = el('div', { class: 'body' }, ...children);
+    const node = el('div', { class: 'msg agent' }, el('span', { class: 'avatar', 'aria-hidden': 'true' }, 'V'), body);
+    messages.append(node);
+    scrollDown();
+    return body;
+  }
+
+  function showTyping() {
+    const node = el('div', { class: 'msg agent typing', 'aria-label': 'VERA is thinking' },
+      el('span', { class: 'avatar', 'aria-hidden': 'true' }, 'V'),
+      el('div', { class: 'body' }, el('i'), el('i'), el('i')));
     messages.append(node);
     scrollDown();
     return node;
@@ -96,8 +145,21 @@
 
   // ------------------------------------------------------------ chat flow
 
+  let busy = false;
+
   function handlePrompt(text) {
+    if (busy) return;
+    busy = true;
     addUser(text);
+    const typing = showTyping();
+    setTimeout(() => {
+      typing.remove();
+      busy = false;
+      respond(text);
+    }, 700);
+  }
+
+  function respond(text) {
     const req = V.parsePrompt(text, { areaAliases: AREA_ALIASES });
     const result = V.search(req, {
       merchants: MERCHANTS,
@@ -109,7 +171,8 @@
     const autonomous = state.mode === 'autonomous' || req.autonomous;
 
     const header = [
-      el('p', { class: 'understood' }, 'I understood: ' + V.describeRequest(req, result.area)),
+      el('div', { class: 'understood', 'aria-label': 'What I understood' },
+        V.describeRequest(req, result.area).split(' · ').map((p) => el('span', {}, p))),
       el('details', { class: 'steps' },
         el('summary', {}, 'How I searched'),
         el('ol', {}, result.steps.map((s) => el('li', {}, s)))),
@@ -129,26 +192,27 @@
       const others = result.options.length - 1;
       const msg = bookingSentence(booking);
       addAgent(header,
-        el('p', {}, 'Autonomous mode: I picked the best match. ' + msg),
-        optionCard(best, null),
-        others ? el('p', { class: 'understood' }, 'I also considered ' + others + ' other option' + (others > 1 ? 's' : '') + '. You can cancel this in Bookings if you change your mind.') : null);
+        el('p', {}, el('strong', {}, 'Auto mode: '), msg),
+        el('div', { class: 'options' }, optionCard(best, null)),
+        others ? el('p', { class: 'muted' }, 'I compared ' + (others + 1) + ' options. You can cancel this in Bookings.') : null);
       say(msg);
       return;
     }
 
-    const intro = 'Here are ' + result.options.length + ' option' + (result.options.length > 1 ? 's' : '') + ". Pick one and I'll book it.";
-    const node = addAgent(header, el('p', {}, intro));
+    const intro = 'Here ' + (result.options.length > 1 ? 'are ' + result.options.length + ' options' : 'is 1 option') + ". Pick one and I'll book it.";
+    const body = addAgent(header, el('p', {}, intro));
     const list = el('div', { class: 'options' });
     for (const opt of result.options) {
       list.append(optionCard(opt, () => {
-        node.querySelectorAll('.options button').forEach((b) => { b.disabled = true; });
+        body.querySelectorAll('.options button').forEach((b) => { b.disabled = true; });
         const booking = book(opt, req, 'hands-on', true);
         const msg = bookingSentence(booking);
         addAgent(el('p', {}, msg));
         say(msg);
       }));
     }
-    node.append(list);
+    body.append(list);
+    scrollDown();
     say(intro);
   }
 
@@ -162,28 +226,32 @@
   }
 
   function bookingSentence(b) {
-    const when = (b.date === todayISO() ? 'today' : b.date) + ' at ' + b.time;
+    const when = friendlyDate(b.date).toLowerCase() + ' at ' + b.time;
     if (b.status === 'awaiting_approval') {
       return 'I\'ve held ' + b.merchantName + ' for ' + b.partySize + ' ' + when + ', but the ' + V.money(b.total) +
         ' payment needs your approval in Bookings.';
     }
     const paid = b.payment ? ' Paid ' + V.money(b.total) + ' securely.' : ' Pay at the venue.';
-    return 'Booked ' + b.merchantName + ' for ' + b.partySize + ' ' + when + '.' + paid + ' Confirmation ' + b.confirmation + '.';
+    return '✅ Booked ' + b.merchantName + ' for ' + b.partySize + ' ' + when + '.' + paid + ' Confirmation ' + b.confirmation + '.';
   }
 
   function optionCard(opt, onBook) {
     const m = opt.merchant;
-    const label = m.prepay ? 'Book & pay ' + V.money(opt.total) : 'Reserve (pay at venue)';
+    const label = m.prepay ? 'Book · ' + V.money(opt.total) : 'Reserve';
     return el('article', { class: 'option' },
-      el('h3', {}, m.name),
-      el('div', { class: 'meta' },
-        m.area + ' · ' + m.category + ' · ' + opt.time + ' · ' + opt.partySize + (opt.partySize === 1 ? ' person' : ' people') +
-        ' · ' + (m.cancellation === 'free' ? 'free cancellation' : 'non-refundable')),
-      el('p', { class: 'blurb' }, m.blurb),
-      el('ul', {}, opt.reasons.map((r) => el('li', {}, r))),
-      el('div', { class: 'row' },
-        el('span', { class: 'price' }, V.money(opt.perPerson) + ' pp · ' + V.money(opt.total) + ' total'),
-        onBook ? el('button', { type: 'button', class: 'primary', onclick: onBook }, label) : null));
+      el('div', { class: 'hero cat-' + m.category },
+        el('span', { class: 'emoji', 'aria-hidden': 'true' }, iconFor(m.id, m.category)),
+        el('span', { class: 'rating' }, '★ ' + m.rating.toFixed(1))),
+      el('div', { class: 'content' },
+        el('h3', {}, m.name),
+        el('div', { class: 'meta' },
+          m.area + ' · ' + opt.time + ' · ' + opt.partySize + (opt.partySize === 1 ? ' person' : ' people') +
+          ' · ' + (m.cancellation === 'free' ? 'Free cancellation' : 'Non-refundable')),
+        el('p', { class: 'blurb' }, m.blurb),
+        el('ul', {}, opt.reasons.slice(1).map((r) => el('li', {}, r))),
+        el('div', { class: 'row' },
+          el('span', { class: 'price' }, V.money(opt.perPerson), el('small', {}, ' / person' + (m.prepay ? '' : ' · pay at venue'))),
+          onBook ? el('button', { type: 'button', class: 'btn primary', onclick: onBook }, label) : null)));
   }
 
   // -------------------------------------------------------------- bookings
@@ -203,55 +271,65 @@
     $('#booking-count').textContent = active ? String(active) : '';
 
     if (!state.bookings.length) {
-      root.append(el('p', { class: 'empty' }, 'No bookings yet. Ask VERA for something in the Chat tab.'));
+      root.append(el('div', { class: 'empty' },
+        el('div', { class: 'big', 'aria-hidden': 'true' }, '🎫'),
+        el('strong', {}, 'No bookings yet'),
+        'Ask VERA for something in Chat and it will show up here.'));
       return;
     }
 
-    const sorted = state.bookings.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const order = (b) => (b.status === 'cancelled' ? '1' : '0') + b.date + b.time;
+    const sorted = state.bookings.slice().sort((a, b) => order(a).localeCompare(order(b)));
     for (const b of sorted) {
       const actions = el('div', { class: 'actions' });
 
       if (b.status === 'awaiting_approval') {
         actions.append(el('button', {
-          type: 'button', class: 'primary',
-          onclick: () => replaceBooking(V.processPayment(b, { spendLimit: state.settings.spendLimit, authorised: true, overrideLimit: true })),
+          type: 'button', class: 'btn primary',
+          onclick: () => {
+            replaceBooking(V.processPayment(b, { spendLimit: state.settings.spendLimit, authorised: true, overrideLimit: true }));
+            toast('Paid ' + V.money(b.total) + '. ' + b.merchantName + ' is confirmed.');
+          },
         }, 'Approve ' + V.money(b.total)));
       }
       if (b.status !== 'cancelled') {
-        actions.append(el('button', {
-          type: 'button', class: 'secondary',
-          onclick: () => {
-            const policy = b.payment && b.cancellation !== 'free' ? ' This merchant is non-refundable, so cancellation may be refused.' : '';
-            if (!window.confirm('Cancel ' + b.merchantName + '?' + policy)) return;
-            const res = V.cancelBooking(b);
-            replaceBooking(res.booking);
-            window.alert(res.message);
-          },
-        }, 'Cancel'));
+        const risky = b.payment && b.cancellation !== 'free';
+        actions.append(confirmButton('Cancel', risky ? 'Non-refundable, try anyway?' : 'Tap to confirm', 'btn danger', () => {
+          const res = V.cancelBooking(b);
+          replaceBooking(res.booking);
+          toast(res.message);
+        }));
       }
       if (b.status === 'confirmed') {
-        const stars = el('span', { class: 'stars', 'aria-label': 'Rate this experience' });
+        const stars = el('span', { class: 'stars', role: 'group', 'aria-label': 'Rate this experience' });
         for (let i = 1; i <= 5; i++) {
           stars.append(el('button', {
             type: 'button', class: b.rating >= i ? 'on' : '', 'aria-label': i + ' star' + (i > 1 ? 's' : ''),
-            onclick: () => replaceBooking(V.rateBooking(b, i)),
+            onclick: () => { replaceBooking(V.rateBooking(b, i)); toast('Thanks! VERA will use this for future suggestions.'); },
           }, '★'));
         }
         actions.append(stars);
       }
 
-      root.append(el('article', { class: 'booking' },
-        el('h3', {}, b.merchantName, el('span', { class: 'badge ' + b.status }, STATUS_LABEL[b.status] || b.status)),
-        el('div', { class: 'meta' },
-          b.date + ' at ' + b.time + ' · ' + b.partySize + (b.partySize === 1 ? ' person' : ' people') + ' · ' + b.area),
-        el('div', { class: 'meta' },
-          V.money(b.total) + ' · ' +
-          (b.payment ? (b.payment.refunded ? 'refunded' : 'paid via ' + b.payment.method) : b.prepay ? 'not paid yet' : 'pay at venue') +
-          (b.confirmation ? ' · ' + b.confirmation : '') + ' · booked in ' + b.mode + ' mode'),
+      const payment = b.payment
+        ? (b.payment.refunded ? 'Refunded' : 'Paid ' + V.money(b.total))
+        : b.prepay ? V.money(b.total) + ' due' : V.money(b.total) + ' at venue';
+
+      root.append(el('article', { class: 'booking' + (b.status === 'cancelled' ? ' is-cancelled' : '') },
+        el('div', { class: 'tile cat-' + b.category, 'aria-hidden': 'true' }, iconFor(b.merchantId, b.category)),
+        el('div', {},
+          el('div', { class: 'top' },
+            el('h3', {}, b.merchantName),
+            el('span', { class: 'badge ' + b.status }, STATUS_LABEL[b.status] || b.status)),
+          el('div', { class: 'meta' },
+            friendlyDate(b.date) + ', ' + b.time + ' · ' + b.partySize + (b.partySize === 1 ? ' person' : ' people') + ' · ' + b.area),
+          el('div', { class: 'meta' },
+            payment + (b.confirmation ? ' · ' + b.confirmation : '') + ' · ' + (b.mode === 'autonomous' ? 'Auto' : 'Hands-on'))),
         actions,
         el('details', { class: 'log' },
-          el('summary', {}, 'Agent log (incident report)'),
-          el('ol', {}, b.log.map((l) => el('li', {}, new Date(l.at).toLocaleTimeString() + ': ' + l.msg))))));
+          el('summary', {}, 'Agent log'),
+          el('ol', {}, b.log.map((l) => el('li', {},
+            new Date(l.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ': ' + l.msg))))));
     }
   }
 
@@ -260,11 +338,12 @@
   function renderSettings() {
     const form = $('#settings');
     const loc = $('#location');
-    loc.replaceChildren(...AREAS.map((a) => el('option', { value: a }, a + ', Tokyo')));
+    loc.replaceChildren(...AREAS.map((a) => el('option', { value: a }, a)));
     loc.value = state.settings.location;
     form.spendLimit.value = state.settings.spendLimit;
     form.autoPay.checked = state.settings.autoPay;
     form.speak.checked = state.settings.speak;
+    $('#where-label').textContent = state.settings.location + ', Tokyo';
   }
 
   $('#settings').addEventListener('change', (e) => {
@@ -276,10 +355,10 @@
       speak: f.speak.checked,
     };
     save();
+    $('#where-label').textContent = state.settings.location + ', Tokyo';
   });
 
-  $('#reset').addEventListener('click', () => {
-    if (!window.confirm('Delete all demo bookings and settings?')) return;
+  $('#reset').replaceWith(confirmButton('Reset demo data', 'Tap again to delete everything', 'btn danger wide', () => {
     state = JSON.parse(JSON.stringify(DEFAULT_STATE));
     save();
     renderSettings();
@@ -287,7 +366,9 @@
     setMode(state.mode);
     messages.replaceChildren();
     greet();
-  });
+    showTab('chat');
+    toast('Demo data reset.');
+  }));
 
   // ---------------------------------------------------------- mode & tabs
 
@@ -296,13 +377,21 @@
     save();
     document.querySelectorAll('.mode button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === mode)));
   }
-  document.querySelectorAll('.mode button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  document.querySelectorAll('.mode button').forEach((b) => b.addEventListener('click', () => {
+    setMode(b.dataset.mode);
+    toast(b.dataset.mode === 'autonomous'
+      ? 'Auto mode: VERA books the best match for you.'
+      : 'Hands-on mode: VERA suggests, you choose.');
+  }));
 
   function showTab(name) {
-    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    document.querySelectorAll('.tabbar button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
     document.querySelectorAll('.panel').forEach((p) => { p.hidden = p.id !== 'tab-' + name; });
+    $('#dock').hidden = name !== 'chat';
+    if (name === 'chat') scrollDown(); else scroller.scrollTop = 0;
   }
-  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  document.querySelectorAll('.tabbar button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  $('#where').addEventListener('click', () => { showTab('settings'); $('#location').focus(); });
 
   // -------------------------------------------------------------- composer
 
@@ -310,7 +399,7 @@
   $('#composer').addEventListener('submit', (e) => {
     e.preventDefault();
     const text = input.value.trim();
-    if (!text) return;
+    if (!text || busy) return;
     input.value = '';
     handlePrompt(text);
   });
@@ -346,10 +435,11 @@
 
   function greet() {
     addAgent(
-      el('p', {}, "Hi, I'm VERA. Tell me what you'd like to do and I'll find it, book it and, if needed, pay for it."),
-      el('p', { class: 'understood' },
-        'Hands-on mode: I suggest, you choose. Autonomous mode: I book the best match for you (or add "just book it" to any request). ' +
-        'You are in ' + state.settings.location + ', Tokyo. Change that in Settings.'));
+      el('p', {}, el('strong', {}, "Hi, I'm VERA 👋 "),
+        "Tell me what you'd like to do and I'll find it, book it and, if needed, pay for it."),
+      el('p', { class: 'muted' },
+        'Hands-on: I suggest, you choose. Auto: I book the best match (or add "just book it"). ' +
+        'This is a demo: all bookings and payments are simulated.'));
   }
 
   renderSettings();
