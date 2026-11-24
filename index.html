@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VERA: Experience &amp; Reservation Agent</title>
+  <meta name="description" content="Concept prototype of an agentic travel concierge that finds, books and pays for experiences.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">V</span>
+        <div>
+          <h1>VERA</h1>
+          <p class="sub">Experience &amp; Reservation Agent</p>
+        </div>
+      </div>
+      <div class="mode" role="radiogroup" aria-label="Agent mode">
+        <button type="button" role="radio" data-mode="hands-on" aria-checked="true">Hands-on</button>
+        <button type="button" role="radio" data-mode="autonomous" aria-checked="false">Autonomous</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
+      <button type="button" role="tab" data-tab="bookings" aria-selected="false">Bookings <span id="booking-count" class="count"></span></button>
+      <button type="button" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+
+    <main>
+      <section id="tab-chat" class="panel" role="tabpanel">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <div class="examples" id="examples"></div>
+        <form id="composer" class="composer" autocomplete="off">
+          <button type="button" id="mic" class="icon-btn" title="Speak your request" aria-label="Speak your request" hidden>🎙</button>
+          <input id="prompt" type="text" placeholder="e.g. guided tour for 4 around 12pm, under £40 per person" aria-label="Your request">
+          <button type="submit" class="primary">Send</button>
+        </form>
+      </section>
+
+      <section id="tab-bookings" class="panel" role="tabpanel" hidden>
+        <div id="bookings"></div>
+      </section>
+
+      <section id="tab-settings" class="panel" role="tabpanel" hidden>
+        <form id="settings" class="settings">
+          <label>Current location
+            <select name="location" id="location"></select>
+          </label>
+          <label>Per-booking spending limit (£)
+            <input type="number" name="spendLimit" min="0" step="5">
+            <small>VERA never pays more than this without asking you first.</small>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="autoPay">
+            Let VERA pay automatically in autonomous mode
+          </label>
+          <label class="check">
+            <input type="checkbox" name="speak">
+            Read VERA's replies aloud
+          </label>
+          <button type="button" id="reset" class="danger">Reset demo data</button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="foot">
+      Academic concept prototype. Not affiliated with or endorsed by Visa. All merchants, availability,
+      agent handshakes and payments are simulated, and no card data is collected.
+    </footer>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/agent.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
