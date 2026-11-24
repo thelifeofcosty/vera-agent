@@ -4,6 +4,8 @@ An agentic travel concierge prototype. You tell VERA what you'd like to do, by t
 finds suitable activities and restaurants, books them and, when the merchant requires it, pays for them.
 It can do this on its own (**autonomous mode**) or suggest options for you to choose from (**hands-on mode**).
 
+**Live demo:** https://thelifeofcosty.github.io/vera-agent/
+
 > "I'm looking for a guided tour for 4 people around 12 PM and our budget is under £40 per person."
 
 > **Academic concept prototype.** VERA was designed during a sprint-week project using the Soft
